@@ -1,17 +1,21 @@
 package game
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"log"
 
 	"github.com/afroash/netscape/internal/camera"
 	"github.com/afroash/netscape/internal/drawstuff"
+	"github.com/afroash/netscape/internal/interaction"
 
 	"github.com/afroash/netscape/internal/entities"
+	"github.com/hajimehoshi/ebiten/examples/resources/fonts"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 type GameState int
@@ -22,14 +26,16 @@ const (
 )
 
 type Game struct {
-	Player       *entities.Player
-	TileMapJson  *drawstuff.TileMapJson
-	TileMapImage *ebiten.Image
-	Cam          *camera.Camera
-	ShouldExit   bool
-	GameState    GameState
-	Menu         *drawstuff.Menu
-	DrawStuff    *drawstuff.DrawStuff
+	Player            *entities.Player
+	TileMapJson       *drawstuff.TileMapJson
+	TileMapImage      *ebiten.Image
+	Cam               *camera.Camera
+	ShouldExit        bool
+	GameState         GameState
+	Menu              *drawstuff.Menu
+	DrawStuff         *drawstuff.DrawStuff
+	InteractionPoints []*interaction.InteractionPoint
+	DialogeBox        *interaction.DialogeBox
 }
 
 func NewGame() *Game {
@@ -48,10 +54,43 @@ func NewGame() *Game {
 		log.Fatal("Error initializing DrawStuff:", err)
 	}
 
+	//initailize font for dialoge box
+	diaglogFontSource, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.MPlus1pRegular_ttf))
+	if err != nil {
+		log.Fatal("Error initializing DialogeBox font:", err)
+	}
+
+	diaglogFont := &text.GoTextFace{
+		Source: diaglogFontSource,
+		Size:   12,
+	}
+
 	game := &Game{
 		GameState: MainMenu,
 		Menu:      menu,
 		DrawStuff: drawStuff,
+		InteractionPoints: []*interaction.InteractionPoint{
+			{
+				X:     250,
+				Y:     250,
+				Range: 30,
+				Messages: []string{
+					"Welcome to the office! This is your first day.",
+					"Your desk is located in the corner.",
+					"Press 'E' to interact with objects when prompted.",
+				},
+			},
+			{
+				X:     150,
+				Y:     400,
+				Range: 30,
+				Messages: []string{
+					"This is the break room.",
+					"Take breaks regularly to maintain productivity!",
+				},
+			},
+		},
+		DialogeBox: interaction.NewDialogeBox(diaglogFont),
 	}
 
 	return game
@@ -114,22 +153,58 @@ func (g *Game) Update() error {
 
 	case Playing:
 		// Existing game update logic
-		if ebiten.IsKeyPressed(ebiten.KeyLeft) {
-			g.Player.PlayerX -= 2
-		}
-		if ebiten.IsKeyPressed(ebiten.KeyRight) {
-			g.Player.PlayerX += 2
-		}
-		if ebiten.IsKeyPressed(ebiten.KeyUp) {
-			g.Player.PlayerY -= 2
-		}
-		if ebiten.IsKeyPressed(ebiten.KeyDown) {
-			g.Player.PlayerY += 2
-		}
-		if ebiten.IsKeyPressed(ebiten.KeyZ) {
-			g.ShouldExit = true
+		// Only process interactions when in playing state
+		if !g.DialogeBox.IsVisible {
+			// Handle player movement only when dialog is not showing
+			if ebiten.IsKeyPressed(ebiten.KeyLeft) {
+				g.Player.PlayerX -= 2
+			}
+			if ebiten.IsKeyPressed(ebiten.KeyRight) {
+				g.Player.PlayerX += 2
+			}
+			if ebiten.IsKeyPressed(ebiten.KeyUp) {
+				g.Player.PlayerY -= 2
+			}
+			if ebiten.IsKeyPressed(ebiten.KeyDown) {
+				g.Player.PlayerY += 2
+			}
+
+			if ebiten.IsKeyPressed(ebiten.KeyZ) {
+				return ebiten.Termination
+			}
+
+			// Check for interactions
+			for _, point := range g.InteractionPoints {
+				if point.IsPlayerInRange(g.Player.PlayerX, g.Player.PlayerY) {
+					if !point.IsActive {
+						point.IsActive = true
+						// Show 'Press E to interact' indicator
+					}
+
+					if inpututil.IsKeyJustPressed(ebiten.KeyE) && !point.HasInteracted {
+						point.HasInteracted = true
+						point.CurrentMsg = 0
+						g.DialogeBox.IsVisible = true
+						g.DialogeBox.CurrentPoint = point
+					}
+				} else {
+					point.IsActive = false
+				}
+			}
+		} else {
+			// Handle dialog navigation
+			if inpututil.IsKeyJustPressed(ebiten.KeySpace) {
+				currentPoint := g.DialogeBox.CurrentPoint
+				if currentPoint.CurrentMsg < len(currentPoint.Messages)-1 {
+					currentPoint.CurrentMsg++
+				} else {
+					g.DialogeBox.IsVisible = false
+					g.DialogeBox.CurrentPoint = nil
+				}
+			}
 		}
 
+		// Update camera
 		g.Cam.FollowPlayer(g.Player.PlayerX+8, g.Player.PlayerY+8, 320, 240)
 		g.Cam.Constrain(
 			320.0,
@@ -177,7 +252,23 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawImage(g.Player.PlayerImage.SubImage(image.Rect(
 			0, 104, 16, 128,
 		)).(*ebiten.Image), op)
+
+		// Draw interaction points
+		for _, point := range g.InteractionPoints {
+			if point.IsActive && !point.HasInteracted {
+				// Draw 'Press E to interact' above the interaction point
+				op := &text.DrawOptions{}
+				worldX := point.X + g.Cam.CameraX
+				worldY := point.Y + g.Cam.CameraY - 20
+				op.GeoM.Translate(worldX, worldY)
+				op.ColorScale.ScaleWithColor(color.White)
+				text.Draw(screen, "Press E", g.DialogeBox.FontFace, op)
+			}
+		}
+		g.DialogeBox.Draw(screen)
+
 	}
+
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
