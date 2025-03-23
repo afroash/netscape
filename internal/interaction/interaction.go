@@ -38,12 +38,12 @@ func NewDialogeBox(fontFace *text.GoTextFace) *DialogeBox {
 	}
 }
 
-// IsPlayerinRange checks if the player is in range of the interaction point
+// IsPlayerInRange checks if the player is in range of the interaction point
 func (ip *InteractionPoint) IsPlayerInRange(playerX, playerY float64) bool {
 	dx := ip.X - playerX
 	dy := ip.Y - playerY
 	distance := math.Sqrt(dx*dx + dy*dy)
-	return distance <= ip.Range*ip.Range
+	return distance <= ip.Range
 }
 
 // Draw renders the dialoge box

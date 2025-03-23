@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/afroash/netscape/internal/camera"
+	debug "github.com/afroash/netscape/internal/debugy"
 	"github.com/afroash/netscape/internal/drawstuff"
 	"github.com/afroash/netscape/internal/interaction"
 
@@ -36,6 +37,7 @@ type Game struct {
 	DrawStuff         *drawstuff.DrawStuff
 	InteractionPoints []*interaction.InteractionPoint
 	DialogeBox        *interaction.DialogeBox
+	Debugy            *debug.DebugInfo
 }
 
 func NewGame() *Game {
@@ -62,7 +64,7 @@ func NewGame() *Game {
 
 	diaglogFont := &text.GoTextFace{
 		Source: diaglogFontSource,
-		Size:   12,
+		Size:   8,
 	}
 
 	game := &Game{
@@ -71,14 +73,17 @@ func NewGame() *Game {
 		DrawStuff: drawStuff,
 		InteractionPoints: []*interaction.InteractionPoint{
 			{
-				X:     250,
-				Y:     250,
+				X:     170,
+				Y:     140,
 				Range: 30,
 				Messages: []string{
 					"Welcome to the office! This is your first day.",
 					"Your desk is located in the corner.",
 					"Press 'E' to interact with objects when prompted.",
 				},
+				IsActive:      true,
+				HasInteracted: false,
+				CurrentMsg:    1,
 			},
 			{
 				X:     150,
@@ -88,9 +93,13 @@ func NewGame() *Game {
 					"This is the break room.",
 					"Take breaks regularly to maintain productivity!",
 				},
+				IsActive:      true,
+				HasInteracted: false,
+				CurrentMsg:    2,
 			},
 		},
 		DialogeBox: interaction.NewDialogeBox(diaglogFont),
+		Debugy:     debug.NewDebugInfo(diaglogFont),
 	}
 
 	return game
@@ -128,6 +137,10 @@ func (g *Game) initializeGameResources() error {
 func (g *Game) Update() error {
 	if g.ShouldExit {
 		return ebiten.Termination
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
+		g.Debugy.Enabled = !g.Debugy.Enabled
 	}
 
 	switch g.GameState {
@@ -182,10 +195,12 @@ func (g *Game) Update() error {
 					}
 
 					if inpututil.IsKeyJustPressed(ebiten.KeyE) && !point.HasInteracted {
+						// Only mark the current point as interacted
 						point.HasInteracted = true
 						point.CurrentMsg = 0
 						g.DialogeBox.IsVisible = true
 						g.DialogeBox.CurrentPoint = point
+						break // Exit the loop after interacting with one point
 					}
 				} else {
 					point.IsActive = false
@@ -267,8 +282,18 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 		g.DialogeBox.Draw(screen)
 
+		// Draw debug info
+		if g.Debugy.Enabled {
+			debugParams := map[string]interface{}{
+				"x":    g.Player.PlayerX,
+				"y":    g.Player.PlayerY,
+				"camX": g.Cam.CameraX,
+				"camY": g.Cam.CameraY,
+				"fps":  ebiten.ActualFPS(),
+			}
+			g.Debugy.Draw(screen, debugParams)
+		}
 	}
-
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
